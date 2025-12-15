@@ -105,10 +105,10 @@ async function renderStudents(page = 1, rowsPerPage = 25) {
   studentTBody.innerHTML = ""; // Clear existing rows
 
   try {
-    // Get all students
+    // Get all students and exclude archived
     const studentsResult = await getStudents();
     console.log("Students result:", studentsResult);
-    let students = studentsResult?.data || [];
+    let students = (studentsResult?.data || []).filter(stu => (stu.status || '').toLowerCase() !== 'archived');
 
     // Get all courses and create a map
     const coursesResult = await getCourses();
@@ -166,6 +166,8 @@ async function renderStudents(page = 1, rowsPerPage = 25) {
         tr.dataset.studentId = student.student_id;
         const courseInfo = courseMap[student.course_id] || { name: 'Unknown', department_id: '?' };
         const departmentName = departmentMap[courseInfo.department_id] || 'Unknown';
+        const st = (student.status || '').toLowerCase();
+        const isArchived = st === 'archived';
 
         tr.innerHTML = `
           <td>${student.student_id}</td>
@@ -173,7 +175,7 @@ async function renderStudents(page = 1, rowsPerPage = 25) {
           <td>${student.student_year}</td>
           <td>${courseInfo.name}</td>
           <td>${departmentName}</td>
-          <td><span class="badge bg-success">${student.status}</span></td>
+          <td><span class="badge ${isArchived ? 'bg-secondary' : 'bg-success'}">${student.status || ''}</span></td>
         `;
         studentTBody.appendChild(tr);
       });
@@ -190,6 +192,8 @@ async function renderStudents(page = 1, rowsPerPage = 25) {
     studentTBody.innerHTML = '<tr><td colspan="6">Error loading students</td></tr>';
   }
 }
+
+// Actions moved to right-click context menu modal in popup.js
 
 async function renderBookCopies(page = 1, rowsPerPage = 25) {
   const bookCopyTBody = document.querySelector("#bookCopiesTableBody");
@@ -449,6 +453,10 @@ async function renderLibraryTransactions() {
         } else if (t.operation_type === 'Archive' || t.operation_type === 'Delete') {
           details = `${t.operation_type}: ${info.title} by ${info.author}`;
           if (after?.reason) details += ` • Reason: ${after.reason}`;
+        } else if (t.operation_type === 'ArchiveStudent') {
+          const sid = before?.student_id || '';
+          const sname = before?.student_name || '';
+          details = `ArchiveStudent: ${sname}${sname && sid ? ` (${sid})` : sid ? sid : ''}`;
         } else {
           details = `${t.operation_type}: ${info.title}`;
         }

@@ -100,14 +100,39 @@
           <span class="description">Student Page</span>
         </a>
 
-        <!-- Archived Books - Bottom position -->
-        <a class="nav-link mb-3" href="./archived-books.html">
+        <!-- Archives -->
+        <a
+          class="nav-link mb-3"
+          data-bs-toggle="collapse"
+          data-bs-target="#submenuArchives"
+          role="button"
+          aria-expanded="false"
+          aria-controls="submenuArchives"
+        >
           <p></p>
-          <span class="icon">
+          <span class="icon" aria-hidden="true">
             <i class="bi bi-archive"></i>
           </span>
-          <span class="description">Archived Books</span>
+          <span class="description">
+            Archives <i class="bi bi-caret-down" aria-hidden="true"></i>
+          </span>
         </a>
+        <div class="sub-menu collapse mb-1" id="submenuArchives">
+          <a href="./archived-books.html" class="nav-link mb-2">
+            <p></p>
+            <span class="icon" aria-hidden="true">
+              <i class="bi bi-archive-fill"></i>
+            </span>
+            <span class="description">Archived Books</span>
+          </a>
+          <a href="./archived-students.html" class="nav-link mb-2">
+            <p></p>
+            <span class="icon" aria-hidden="true">
+              <i class="bi bi-person-x-fill"></i>
+            </span>
+            <span class="description">Archived Students</span>
+          </a>
+        </div>
       </nav>
     </div>
 

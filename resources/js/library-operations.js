@@ -432,6 +432,41 @@ class LibraryOperations {
     });
     return { success: true, student_id: studentId };
   }
+
+  async restoreArchivedStudent(studentId) {
+    const user = await requireRole(["Admin", "Librarian"]);
+    const nowStr = this.formatPHT12(new Date());
+    const stuRes = await insertDB("select", "students", "*", { student_id: studentId });
+    const student = stuRes?.data?.[0];
+    if (!student) { throw new Error(`Student with ID ${studentId} not found.`); }
+    await runDBTransaction(async () => {
+      await insertDB("update", "students", { status: "Active" }, { student_id: studentId });
+      const archTxRes = await insertDB("select", "archived_transaction_borrow", "*", { borrower_id: studentId });
+      const archTxs = archTxRes?.data || [];
+      for (const t of archTxs) {
+        await insertDB("insert", "transaction_borrow", {
+          book_id: t.book_id,
+          copy_id: t.copy_id,
+          borrower_id: t.borrower_id,
+          transaction_type: t.transaction_type,
+          borrowed_at: t.borrowed_at,
+          due_at: t.due_at,
+          returned_at: t.returned_at,
+          staff_id: t.staff_id,
+        });
+        await insertDB("delete", "archived_transaction_borrow", null, { id: t.id });
+      }
+      await insertDB("insert", "transaction_library", {
+        book_id: null,
+        operation_type: "RestoreStudent",
+        before_values: JSON.stringify({ student_id: student.student_id, student_name: student.student_name, status: "Archived" }),
+        after_values: JSON.stringify({ status: "Active" }),
+        staff_id: user.id,
+        timestamp: nowStr,
+      });
+    });
+    return { success: true, student_id: studentId };
+  }
 }
 
 const libraryOperations = new LibraryOperations();
@@ -447,6 +482,7 @@ function generateCopyId(department, bookId, copyNumber) { return libraryOperatio
 async function updateStudent(studentData, studentId) { return libraryOperations.updateStudent(studentData, studentId); }
 async function deleteStudent(studentId) { return libraryOperations.deleteStudent(studentId); }
 async function archiveStudent(studentId) { return libraryOperations.archiveStudent(studentId); }
+async function restoreArchivedStudent(studentId) { return libraryOperations.restoreArchivedStudent(studentId); }
 async function generateArchiveId() { return libraryOperations.generateArchiveId(); }
 async function insertStudent(studentData) { return libraryOperations.insertStudent(studentData); }
 async function restoreArchivedBook(bookId) { return libraryOperations.restoreArchivedBook(bookId); }

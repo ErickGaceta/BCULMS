@@ -12,6 +12,13 @@
   <body>
     <div id="loader" role="status" aria-live="polite">
       <div class="loader-box">
+        <div class="loader-book" aria-hidden="true">
+          <div class="book">
+            <div class="book-left"></div>
+            <div class="book-right"></div>
+            <div class="book-page"></div>
+          </div>
+        </div>
         <p id="loader-text">Loading assets...</p>
       </div>
     </div>
@@ -105,14 +112,39 @@
           <span class="description">Student Page</span>
         </a>
 
-        <!-- Archived Books - Bottom position -->
-        <a class="nav-link mb-3" href="./archived-books.html">
+        <!-- Archives -->
+        <a
+          class="nav-link mb-3"
+          data-bs-toggle="collapse"
+          data-bs-target="#submenuArchives"
+          role="button"
+          aria-expanded="false"
+          aria-controls="submenuArchives"
+        >
           <p></p>
           <span class="icon">
             <i class="bi bi-archive"></i>
           </span>
-          <span class="description">Archived Books</span>
+          <span class="description">
+            Archives <i class="bi bi-caret-down"></i>
+          </span>
         </a>
+        <div class="sub-menu collapse mb-1" id="submenuArchives">
+          <a href="./archived-books.html" class="nav-link mb-2">
+            <p></p>
+            <span class="icon">
+              <i class="bi bi-archive-fill"></i>
+            </span>
+            <span class="description">Archived Books</span>
+          </a>
+          <a href="./archived-students.html" class="nav-link mb-2">
+            <p></p>
+            <span class="icon">
+              <i class="bi bi-person-x-fill"></i>
+            </span>
+            <span class="description">Archived Students</span>
+          </a>
+        </div>
       </nav>
     </div>
 
@@ -284,5 +316,61 @@
     <script src="../js/dashboard.js"></script>
     <script src="../js/popup.js"></script>
     <script src="../js/app.js"></script>
+    <script>
+      (function() {
+        async function runLoader() {
+          var loader = document.getElementById('loader');
+          var loaderText = document.getElementById('loader-text');
+          if (!loader) return;
+          var minDisplayMs = 3000;
+          var start = performance.now();
+          var setText = function(t){ if (loaderText) loaderText.textContent = t; };
+
+          function preloadImage(src) {
+            return new Promise(function(resolve){
+              var img = new Image();
+              img.onload = function(){ resolve(true); };
+              img.onerror = function(){ resolve(false); };
+              img.src = src;
+            });
+          }
+
+          try {
+            setText('Loading assets...');
+            var assetsPromise = preloadImage('../images/bcu_building2.jpg');
+
+            setText('Initializing database...');
+            await new Promise(function(r){ setTimeout(r, 1000); });
+            var dbInitPromise = (async function(){
+              try {
+                if (typeof initPath === 'function') await initPath();
+                if (typeof initDB === 'function') await initDB();
+                if (typeof waitForDBReady === 'function') await waitForDBReady(8000);
+              } catch (e) {
+                console.error('DB init error:', e);
+              }
+            })();
+
+            await Promise.all([assetsPromise, dbInitPromise]);
+            setText('Finalizing setup...');
+          } catch (err) {
+            console.error('Loader error:', err);
+            setText('Starting application...');
+          } finally {
+            var elapsed = performance.now() - start;
+            var waitMore = Math.max(0, minDisplayMs - elapsed);
+            setTimeout(function(){
+              loader.style.display = 'none';
+              loader.setAttribute('aria-hidden', 'true');
+            }, waitMore);
+          }
+        }
+        if (document.readyState === 'loading') {
+          document.addEventListener('DOMContentLoaded', runLoader);
+        } else {
+          runLoader();
+        }
+      })();
+    </script>
   </body>
 </html>

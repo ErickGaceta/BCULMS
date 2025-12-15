@@ -147,7 +147,7 @@ async function bookCopyModalLoader() {
   const modalInstance = new bootstrap.Modal(modalElement);
   let selectedRow = null;
 
-  tbody.addEventListener("contextmenu", (e) => {
+  tbody.addEventListener("contextmenu", async (e) => {
     const row = e.target.closest("tr[data-copy-id]");
     if (!row) return;
     e.preventDefault();
@@ -165,6 +165,24 @@ async function bookCopyModalLoader() {
       .join(" - ");
 
     document.getElementById("bookCopyContextTitle").textContent = titleText;
+
+    const copyId = selectedRow.dataset.copyId;
+    const setBorrowedEl = modalElement.querySelector("#setBorrowedBook");
+    const setReturnedEl = modalElement.querySelector("#setReturnedBook");
+    try {
+      const res = await insertDB("select", "book_copy", "status", { copy_id: copyId });
+      const st = (res.data?.[0]?.status || "").toLowerCase();
+      if (st === "borrowed") {
+        setBorrowedEl.style.display = "none";
+        setReturnedEl.style.display = "";
+      } else {
+        setBorrowedEl.style.display = "";
+        setReturnedEl.style.display = "none";
+      }
+    } catch (err) {
+      setBorrowedEl.style.display = "";
+      setReturnedEl.style.display = "none";
+    }
 
     modalInstance.show();
   });
@@ -454,10 +472,50 @@ async function bookCopyModalLoader() {
     modalInstance.hide();
   };
 
-  modalElement.querySelector("#bookCopyDetails").onclick = () => {
-    const id = selectedRow.dataset.copyId;
-    showPopup("Copy Details for Book Copy ID", `Book Copy ID: ${id}`);
-    modalInstance.hide();
+  modalElement.querySelector("#bookCopyDetails").onclick = async () => {
+    const copyId = selectedRow.dataset.copyId;
+    try {
+      const res = await insertDB("select", "book_copy", "*", { copy_id: copyId });
+      const copy = res.data?.[0];
+      if (!copy) {
+        showModalAlert("Book copy not found.", "danger");
+        return;
+      }
+      const txRes = await insertDB(
+        "select",
+        "transaction_borrow",
+        "borrower_id, transaction_type, borrowed_at, returned_at, due_at",
+        { copy_id: copyId }
+      );
+      const txs = txRes?.data || [];
+      txs.forEach(t => {
+        const ts = t.transaction_type === "Return" ? (t.returned_at || "") : (t.borrowed_at || t.due_at || "");
+        const time = ts ? Date.parse(ts.replace(/ AM| PM/, "")) : 0;
+        t._time = time;
+      });
+      txs.sort((a,b)=> (b._time||0)-(a._time||0));
+      let lastBorrowerId = null;
+      for (const t of txs) {
+        if (t.transaction_type === "Borrow") { lastBorrowerId = t.borrower_id; break; }
+      }
+      const studentsResult = await getStudents();
+      const students = studentsResult.data || [];
+      const studentsMap = {};
+      students.forEach(s => { studentsMap[s.student_id] = s.student_name; });
+      const lastBorrowerName = lastBorrowerId ? (studentsMap[lastBorrowerId] || String(lastBorrowerId)) : "—";
+      const returnedDate = copy.returned_date || (txs.find(t => t.transaction_type === "Return" && t.returned_at)?.returned_at) || "—";
+      const detailsHTML = `
+        <div class="mb-2"><strong>Book Copy ID:</strong> ${copyId}</div>
+        <div class="mb-2"><strong>Status:</strong> ${copy.status || "—"}</div>
+        <div class="mb-2"><strong>Condition:</strong> ${copy.condition || "—"}</div>
+        <div class="mb-2"><strong>Last Borrowed by:</strong> ${lastBorrowerName}</div>
+        <div class="mb-2"><strong>Returned date:</strong> ${returnedDate}</div>
+      `;
+      showPopup("Copy Details", detailsHTML);
+      modalInstance.hide();
+    } catch (err) {
+      showModalAlert("Failed to load copy details: " + err.message, "danger");
+    }
   };
 
   modalElement.querySelector("#deleteBookCopy").onclick = async () => {
@@ -672,6 +730,7 @@ async function showBookPopup(action, id) {
         `
         <p>Archive book <strong>${rowTitle}</strong>? Copies that are not borrowed will be archived. Borrowed copies remain until returned.</p>
         <button id="confirmArchive" class="btn btn-danger mt-2">Yes, archive it</button>
+        <button id="cancelArchive" class="btn btn-secondary mt-2" data-bs-dismiss="modal">Cancel</button>
       `
       );
 
@@ -680,12 +739,21 @@ async function showBookPopup(action, id) {
           await archiveBook(id);
           deleteRow.remove();
           closeModal();
-          alert(`Book "${rowTitle}" has been archived. Borrowed copies will archive upon return.`);
+          showPopup(
+            "Book Archived",
+            `Book "${rowTitle}" has been archived. Borrowed copies will archive upon return.`
+          );
         } catch (err) {
-          alert(err.message);
           closeModal();
+          showPopup("Archive Failed", err.message);
         }
       };
+      const cancelBtn = document.getElementById("cancelArchive");
+      if (cancelBtn) {
+        cancelBtn.onclick = () => {
+          closeModal();
+        };
+      }
       break;
 
     default:
@@ -798,10 +866,11 @@ async function studentContextModalLoader() {
             <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
           </div>
           <div class="modal-body p-0">
-            <ul class="list-group list-group-flush mb-0">
-              <li class="list-group-item list-group-item-action" id="viewStudentDetails">View Details</li>
-              <li class="list-group-item list-group-item-action" id="viewStudentBorrowed">View Borrowed Books</li>
-            </ul>
+          <ul class="list-group list-group-flush mb-0">
+            <li class="list-group-item list-group-item-action" id="viewStudentDetails">View Details</li>
+            <li class="list-group-item list-group-item-action" id="viewStudentBorrowed">View Borrowed Books</li>
+            <li class="list-group-item list-group-item-action text-warning" id="archiveStudent">Archive Student</li>
+          </ul>
           </div>
         </div>
       </div>
@@ -819,6 +888,12 @@ async function studentContextModalLoader() {
     selectedRow = row;
     const nameCell = selectedRow.querySelector("td:nth-child(2)");
     document.getElementById("studentContextTitle").textContent = nameCell ? nameCell.textContent.trim() : "";
+    const statusCell = selectedRow.querySelector("td:nth-child(6)");
+    const statusText = (statusCell ? statusCell.textContent : "").trim().toLowerCase();
+    const archiveEl = modalElement.querySelector('#archiveStudent');
+    if (archiveEl) {
+      archiveEl.style.display = statusText === 'archived' ? 'none' : '';
+    }
     modalInstance.show();
   });
 
@@ -831,6 +906,65 @@ async function studentContextModalLoader() {
     const id = selectedRow.dataset.studentId;
     await showStudentBorrowedBooks(id);
     modalInstance.hide();
+  };
+
+  modalElement.querySelector('#archiveStudent').onclick = async () => {
+    const id = selectedRow.dataset.studentId;
+    const nameCell = selectedRow.querySelector('td:nth-child(2)');
+    const name = nameCell ? nameCell.textContent.trim() : id;
+    modalInstance.hide();
+    const confirmModal = document.createElement('div');
+    confirmModal.className = 'modal fade';
+    confirmModal.innerHTML = `
+      <div class="modal-dialog modal-dialog-centered">
+        <div class="modal-content">
+          <div class="modal-header bg-warning">
+            <h5 class="modal-title">
+              <i class="bi bi-archive me-2" aria-hidden="true"></i>
+              Archive Student
+            </h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p>Are you sure you want to archive this student?</p>
+            <div class="alert alert-info">
+              <strong>Student:</strong> ${name} (${id})<br>
+              <small>Completed borrow transactions will be archived and the student's status will be set to <em>Archived</em>.</small>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="button" class="btn btn-warning" id="confirmArchiveStudentBtn">Archive Student</button>
+          </div>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(confirmModal);
+    const bsConfirm = new bootstrap.Modal(confirmModal);
+    bsConfirm.show();
+    confirmModal.querySelector('#confirmArchiveStudentBtn').addEventListener('click', async () => {
+      try {
+        await waitForDBReady();
+        try { await applyAdditionalSchema(); } catch (_) {}
+        const res = await archiveStudent(id);
+        bsConfirm.hide();
+        if (res && res.success) {
+          showModalAlert(`Student \"${name}\" archived successfully.`, 'success');
+          if (typeof renderStudents === 'function') {
+            await renderStudents(1);
+          } else {
+            const badge = selectedRow.querySelector('td:nth-child(6) .badge');
+            if (badge) { badge.className = 'badge bg-secondary'; badge.textContent = 'Archived'; }
+          }
+        } else {
+          showModalAlert(`Failed to archive student: ${res?.message || 'Unknown error'}`, 'danger');
+        }
+      } catch (e) {
+        bsConfirm.hide();
+        showModalAlert(`Failed to archive student: ${e.message}`, 'danger');
+      }
+    });
+    confirmModal.addEventListener('hidden.bs.modal', () => confirmModal.remove());
   };
 }
 

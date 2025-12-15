@@ -188,6 +188,37 @@ async function applyAdditionalSchema() {
   db.run(`CREATE INDEX IF NOT EXISTS idx_transaction_library_type ON "transaction_library"("operation_type");`);
   db.run(`CREATE INDEX IF NOT EXISTS idx_transaction_library_time ON "transaction_library"("timestamp");`);
 
+    try {
+    let stmtTl = db.prepare("PRAGMA table_info(transaction_library)");
+    let bookIsNotNull = false;
+    while (stmtTl.step()) {
+      const row = stmtTl.getAsObject();
+      if (row.name === 'book_id') bookIsNotNull = (row.notnull === 1);
+    }
+    stmtTl.free();
+    if (bookIsNotNull) {
+      try {
+        db.run(`CREATE TABLE IF NOT EXISTS "transaction_library_new" (
+          "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+          "book_id" INTEGER,
+          "operation_type" TEXT NOT NULL,
+          "before_values" TEXT,
+          "after_values" TEXT,
+          "staff_id" TEXT NOT NULL,
+          "timestamp" TEXT NOT NULL,
+          FOREIGN KEY("book_id") REFERENCES "books"("book_id") ON DELETE CASCADE
+        );`);
+        db.run(`INSERT INTO transaction_library_new (id, book_id, operation_type, before_values, after_values, staff_id, timestamp)
+                SELECT id, book_id, operation_type, before_values, after_values, staff_id, timestamp FROM transaction_library;`);
+        db.run(`DROP TABLE transaction_library;`);
+        db.run(`ALTER TABLE transaction_library_new RENAME TO transaction_library;`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_transaction_library_book ON "transaction_library"("book_id");`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_transaction_library_type ON "transaction_library"("operation_type");`);
+        db.run(`CREATE INDEX IF NOT EXISTS idx_transaction_library_time ON "transaction_library"("timestamp");`);
+      } catch (_) {}
+    }
+  } catch (_) {}
+
   db.run(`CREATE TABLE IF NOT EXISTS "archived_book_copy" (
     "archive_copy_id" INTEGER PRIMARY KEY AUTOINCREMENT,
     "copy_id" TEXT NOT NULL UNIQUE,

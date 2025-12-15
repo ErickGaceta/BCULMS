@@ -16,6 +16,12 @@ async function initializeApp() {
       await dashboardTotalStudents();
       await dashboardNotifications();
       await dashboardRecentActivity();
+      const archiveBookBtn = document.querySelector("#archiveBookBtn");
+      if (archiveBookBtn) {
+        archiveBookBtn.addEventListener("click", () => {
+          window.location.href = "./archived-books.html";
+        });
+      }
       const openDbFolderBtn = document.querySelector("#openDbFolderBtn");
       if (openDbFolderBtn) {
         openDbFolderBtn.addEventListener("click", async () => {
